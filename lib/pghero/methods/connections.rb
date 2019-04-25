@@ -42,7 +42,7 @@ module PgHero
         select_all <<-SQL
           SELECT
             datname AS database,
-            usename AS user,
+            application_name AS user,
             COUNT(*) AS total_connections
           FROM
             pg_stat_activity
