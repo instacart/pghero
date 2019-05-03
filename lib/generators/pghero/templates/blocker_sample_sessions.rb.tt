@@ -1,0 +1,31 @@
+class <%= migration_class_name %> < ActiveRecord::Migration<%= migration_version %>
+  def change
+    create_table :pghero_blocker_sample_sessions do |t|
+      t.integer :blocker_sample_id, limit: 8
+      t.integer :pid
+      t.text :user
+      t.text :source
+      t.inet :client_addr
+      t.text :client_hostname
+      t.integer :client_port
+      t.timestamp :backend_start
+      t.timestamp :xact_start
+      t.timestamp :query_start
+      t.timestamp :state_change
+      t.text :wait_event_type
+      t.text :wait_event
+      t.text :state
+      t.integer :backend_xid, limit: 8
+      t.integer :backend_xmin, limit: 8
+      t.text :query
+      t.integer :query_hash, limit: 8
+      t.text :backend_type
+      t.integer :blocked_by, array: true
+      t.integer :blocking, array: true
+    end
+
+    add_foreign_key :pghero_blocker_sample_sessions, :pghero_blocker_samples, column: :blocker_sample_id
+
+    add_index :pghero_blocker_sample_sessions, :blocker_sample_id
+  end
+end
