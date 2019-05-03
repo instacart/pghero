@@ -1,0 +1,13 @@
+class <%= migration_class_name %> < ActiveRecord::Migration<%= migration_version %>
+  def change
+    create_table :pghero_blocker_samples do |t|
+      t.text :database
+      t.timestamp :captured_at
+      t.integer :txid_xmin, limit: 8
+      t.integer :txid_xmax, limit: 8
+      t.integer :txid_xip, limit: 8, array: true
+    end
+
+    add_index :pghero_blocker_samples, [:database, :captured_at]
+  end
+end
