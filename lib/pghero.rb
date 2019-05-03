@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 # dependencies
 require "active_support"
 
@@ -9,8 +11,11 @@ require "pghero/methods/indexes"
 require "pghero/methods/kill"
 require "pghero/methods/maintenance"
 require "pghero/methods/queries"
+require "pghero/methods/query_blockers"
+require "pghero/methods/query_blockers_history"
 require "pghero/methods/query_stats"
 require "pghero/methods/replication"
+require "pghero/methods/repository"
 require "pghero/methods/sequences"
 require "pghero/methods/settings"
 require "pghero/methods/space"
@@ -19,13 +24,14 @@ require "pghero/methods/system"
 require "pghero/methods/tables"
 require "pghero/methods/users"
 
+require "pghero/base_database"
 require "pghero/database"
 require "pghero/engine" if defined?(Rails)
+require "pghero/pg_const"
+require "pghero/repository"
 require "pghero/version"
 
 module PgHero
-  autoload :Connection, "pghero/connection"
-  autoload :QueryStats, "pghero/query_stats"
 
   class Error < StandardError; end
   class NotEnabled < Error; end
@@ -55,7 +61,7 @@ module PgHero
       :query_stats_available?, :query_stats_enabled?, :query_stats_extension_enabled?, :query_stats_readable?,
       :rds_stats, :read_iops_stats, :region, :relation_sizes, :replica?, :replication_lag, :replication_lag_stats,
       :reset_query_stats, :reset_stats, :running_queries, :secret_access_key, :sequence_danger, :sequences, :settings,
-      :slow_queries, :space_growth, :ssl_used?, :stats_connection, :suggested_indexes, :suggested_indexes_by_query,
+      :slow_queries, :space_growth, :ssl_used?, :suggested_indexes, :suggested_indexes_by_query,
       :suggested_indexes_enabled?, :system_stats_enabled?, :table_caching, :table_hit_rate, :table_stats,
       :total_connections, :transaction_id_danger, :unused_indexes, :unused_tables, :write_iops_stats
 
@@ -100,9 +106,10 @@ module PgHero
 
     def databases
       @databases ||= begin
+        repository = PgHero::Repository.new
         Hash[
           config["databases"].map do |id, c|
-            [id.to_sym, PgHero::Database.new(id, c)]
+            [id.to_sym, PgHero::Database.new(id, c, repository)]
           end
         ]
       end
@@ -115,6 +122,7 @@ module PgHero
     def capture_query_stats(verbose: false)
       each_database do |database|
         next unless database.capture_query_stats?
+
         puts "Capturing query stats for #{database.id}..." if verbose
         database.capture_query_stats(raise_errors: true)
       end
@@ -138,15 +146,15 @@ module PgHero
       each_database do |database|
         next unless database.capture_query_blockers?
 
-        puts "(Simulating) Capturing query blockers for #{database.id}..." if verbose
-        # TODO: actually implement database.capture_query_blockers
+        puts "Capturing query blockers for #{database.id}..." if verbose
+        database.capture_query_blockers
       end
-      true
     end
 
     def analyze_all(**options)
       each_database do |database|
         next if database.replica?
+
         database.analyze_tables(**options)
       end
     end

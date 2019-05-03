@@ -1,48 +1,93 @@
+# frozen_string_literal: true
+
+require 'active_record'
+
 module PgHero
   module Methods
     module Basic
+
+      PG_CONNECTION_ADAPTER_NAMES = %i[postgresql postgis].freeze
+
+      ACTIVE_RECORD_CAST_METHOD = ActiveRecord::VERSION::MAJOR < 5 ? :type_cast : :cast
+
+      private_constant :PG_CONNECTION_ADAPTER_NAMES, :ACTIVE_RECORD_CAST_METHOD
+
+      # from ActiveSupport
+      def self.squish(str)
+        str.to_s.gsub(/\A[[:space:]]+/, '').gsub(/[[:space:]]+\z/, '').gsub(/[[:space:]]+/, ' ')
+      end
+
+      def self.remove_line_comments(sql)
+        sql.gsub(/[\s]*--[^\r\n]*/, '')
+      end
+
+      def self.sql_const(sql)
+        make_squishable(sql, squish(remove_line_comments(sql)))
+      end
+
+      def self.make_squishable(obj, squished, freeze = true)
+        squished = squished.freeze if freeze
+        obj = obj.frozen? ? obj.dup : obj
+        obj.define_singleton_method(:squish, -> { squished })
+        freeze ? obj.freeze : obj
+      end
+
+      def execute(sql)
+        connection.execute(sql)
+      end
+
+      def select_one(sql)
+        select_all(sql).first.values.first
+      end
+
+      def quote(value)
+        connection.quote(value)
+      end
+
       def ssl_used?
         ssl_used = nil
         with_transaction(rollback: true) do
           begin
-            execute("CREATE EXTENSION IF NOT EXISTS sslinfo")
+            execute('CREATE EXTENSION IF NOT EXISTS sslinfo')
           rescue ActiveRecord::StatementInvalid
             # not superuser
           end
-          ssl_used = select_one("SELECT ssl_is_used()")
+          ssl_used = select_one('SELECT ssl_is_used()')
         end
         ssl_used
       end
 
       def database_name
-        select_one("SELECT current_database()")
+        select_one('SELECT current_database()')
       end
 
       def server_version
-        @server_version ||= select_one("SHOW server_version")
+        @server_version ||= select_one('SHOW server_version')
       end
 
       def server_version_num
-        @server_version_num ||= select_one("SHOW server_version_num").to_i
+        @server_version_num ||= select_one('SHOW server_version_num').to_i
       end
 
       def quote_ident(value)
         quote_table_name(value)
       end
 
-      private
-
-      def select_all(sql, conn = nil)
-        conn ||= connection
+      def select_all(sql)
         # squish for logs
         retries = 0
         begin
-          result = conn.select_all(squish(sql))
-          cast_method = ActiveRecord::VERSION::MAJOR < 5 ? :type_cast : :cast_value
-          result.map { |row| Hash[row.map { |col, val| [col.to_sym, result.column_types[col].send(cast_method, val)] }] }
+          result = connection.select_all(sql.respond_to?(:squish) ? sql.squish : squish(sql))
+          result.map do |row|
+            Hash[
+              row.map do |col, val|
+                [col.to_sym, result.column_types[col].send(ACTIVE_RECORD_CAST_METHOD, val)]
+              end
+            ]
+          end
         rescue ActiveRecord::StatementInvalid => e
           # fix for random internal errors
-          if e.message.include?("PG::InternalError") && retries < 2
+          if e.message.include?('PG::InternalError') && retries < 2
             retries += 1
             sleep(0.1)
             retry
@@ -50,10 +95,6 @@ module PgHero
             raise e
           end
         end
-      end
-
-      def select_all_stats(sql)
-        select_all(sql, stats_connection)
       end
 
       def select_all_size(sql)
@@ -64,35 +105,12 @@ module PgHero
         result
       end
 
-      def select_one(sql, conn = nil)
-        select_all(sql, conn).first.values.first
+      def select_one(sql)
+        select_all(sql).first.values.first
       end
 
-      def select_one_stats(sql)
-        select_one(sql, stats_connection)
-      end
-
-      def execute(sql)
-        connection.execute(sql)
-      end
-
-      def connection
-        connection_model.connection
-      end
-
-      def stats_connection
-        ::PgHero::QueryStats.connection
-      end
-
-      def insert_stats(table, columns, values)
-        values = values.map { |v| "(#{v.map { |v2| quote(v2) }.join(",")})" }.join(",")
-        columns = columns.map { |v| quote_table_name(v) }.join(",")
-        stats_connection.execute("INSERT INTO #{quote_table_name(table)} (#{columns}) VALUES #{values}")
-      end
-
-      # from ActiveSupport
       def squish(str)
-        str.to_s.gsub(/\A[[:space:]]+/, "").gsub(/[[:space:]]+\z/, "").gsub(/[[:space:]]+/, " ")
+        Basic.squish(str)
       end
 
       def quote(value)
@@ -121,22 +139,80 @@ module PgHero
       end
 
       def table_exists?(table)
-        ["PostgreSQL", "PostGIS"].include?(stats_connection.adapter_name) &&
-        select_one_stats(<<-SQL
-          SELECT EXISTS (
+        postgres_connection? &&
+          select_one(<<-SQL)
+            SELECT EXISTS (
+              #{table_exists_subquery(quote(table))}
+            )
+          SQL
+      end
+
+      def missing_tables(*tables)
+        return tables unless postgres_connection?
+
+        result = select_all(<<-SQL)
             SELECT
-              1
+              table_name
             FROM
-              pg_catalog.pg_class c
-            INNER JOIN
-              pg_catalog.pg_namespace n ON n.oid = c.relnamespace
-            WHERE
-              n.nspname = 'public'
-              AND c.relname = #{quote(table)}
-              AND c.relkind = 'r'
-          )
+              UNNEST(ARRAY[#{tables.map { |table| "'#{table}'" }.join(', ')}]::varchar[]) table_name
+            WHERE NOT EXISTS (
+              #{table_exists_subquery('table_name')}
+            )
         SQL
-        )
+
+        result.map { |row| row[:table_name] }
+      end
+
+      def postgres_connection?
+        PG_CONNECTION_ADAPTER_NAMES.include?(connection_adapter_name)
+      end
+
+      private
+
+      def table_exists_subquery(quoted_relname)
+        # quoted_relname must be pre-quoted if it's a literal
+        <<-SQL
+          SELECT
+            1
+          FROM
+            pg_catalog.pg_class c
+          INNER JOIN
+            pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+          WHERE
+            n.nspname = 'public'
+            AND c.relname = #{quoted_relname}
+                AND c.relkind = 'r'
+        SQL
+      end
+
+      def quote_column_names(col_names)
+        connection = self.connection
+        col_names.map do |col_name|
+          connection.quote_table_name(col_name)
+        end
+      end
+
+      def quote_row_values(row_values)
+        row_values.map do |value|
+          connection.quote(value)
+        end
+      end
+
+      def quote_typed_column_names(typed_columns)
+        connection = self.connection
+        typed_columns.map { |col| col.quote_name(connection) }
+      end
+
+      def quote_typed_row_values(typed_columns, row_values)
+        connection = self.connection
+        typed_columns.map.with_index do |typed_col, idx|
+          typed_col.quote_value(connection, row_values[idx])
+        end
+      end
+
+      # From ActiveRecord::Type - compatible with ActiveRecord::Type.lookup
+      def connection_adapter_name
+        connection.adapter_name.downcase.to_sym
       end
     end
   end

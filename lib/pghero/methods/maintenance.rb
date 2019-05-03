@@ -34,7 +34,7 @@ module PgHero
       end
 
       def vacuum_progress
-        if server_version_num >= 90600
+        if server_version_num >= PgConst::VERSION_9_6
           select_all <<-SQL
             SELECT
               pid,

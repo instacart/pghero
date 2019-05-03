@@ -303,6 +303,12 @@ PgHero.drop_user("ganondorf")
 
 ## Upgrading
 
+### 2.x.y
+
+New features
+
+Sample blocker queries - TODO
+
 ### 2.0.0
 
 New features

@@ -1,12 +1,17 @@
+# frozen_string_literal: true
+
+require "active_record"
+
 module PgHero
-  class Database
-    include Methods::Basic
+  class Database < BaseDatabase
+
     include Methods::Connections
     include Methods::Explain
     include Methods::Indexes
     include Methods::Kill
     include Methods::Maintenance
     include Methods::Queries
+    include Methods::QueryBlockers
     include Methods::QueryStats
     include Methods::Replication
     include Methods::Sequences
@@ -19,17 +24,18 @@ module PgHero
 
     attr_reader :id, :config
 
-    def initialize(id, config)
+    def initialize(id, config, repository)
       @id = id
       @config = config || {}
+      @repository = repository
     end
 
     def name
-      @name ||= @config["name"] || id.titleize
+      @name ||= config["name"] || id.titleize
     end
 
     def db_instance_identifier
-      @db_instance_identifier ||= @config["db_instance_identifier"]
+      @db_instance_identifier ||= config["db_instance_identifier"]
     end
 
     def capture_query_stats?
@@ -70,10 +76,12 @@ module PgHero
 
     private
 
+    attr_reader :repository
+
     def connection_model
       @connection_model ||= begin
         url = config["url"]
-        Class.new(PgHero::Connection) do
+        Class.new(Connection) do
           def self.name
             "PgHero::Connection::Database#{object_id}"
           end
@@ -86,6 +94,10 @@ module PgHero
           establish_connection url if url
         end
       end
+    end
+
+    class Connection < ActiveRecord::Base
+      self.abstract_class = true
     end
   end
 end

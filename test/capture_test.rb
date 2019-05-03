@@ -3,11 +3,33 @@
 require_relative 'test_helper'
 
 class CaptureTest < Minitest::Test
-
-  def test_capture_query_blockers
-    # TODO: test needs to be in a transaction rollback as soon
-    # as capture_query_blockers implements real inserts
-    assert PgHero.capture_query_blockers(verbose: true)
+  def test_primary_database_capture_query_stats
+    stats_repository.with_transaction(rollback: rollback_enabled?) do
+      assert primary_database.capture_query_stats(raise_errors: true)
+    end
   end
 
+  def test_capture_query_stats
+    stats_repository.with_transaction(rollback: rollback_enabled?) do
+      assert PgHero.capture_query_stats(verbose: true)
+    end
+  end
+
+  def test_capture_space_stats
+    stats_repository.with_transaction(rollback: rollback_enabled?) do
+      assert PgHero.capture_space_stats(verbose: true)
+    end
+  end
+
+  def test_capture_query_stats
+    stats_repository.with_transaction(rollback: rollback_enabled?) do
+      assert PgHero.capture_query_stats(verbose: true)
+    end
+  end
+
+  def test_capture_connection_stats
+    stats_repository.with_transaction(rollback: rollback_enabled?) do
+      assert PgHero.capture_connection_stats(verbose: true)
+    end
+  end
 end

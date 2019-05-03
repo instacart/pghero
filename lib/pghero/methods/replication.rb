@@ -12,7 +12,7 @@ module PgHero
       def replication_lag
         with_feature_support(:replication_lag) do
           lag_condition =
-            if server_version_num >= 100000
+            if server_version_num >= PgConst::VERSION_10
               "pg_last_wal_receive_lsn() = pg_last_wal_replay_lsn()"
             else
               "pg_last_xlog_receive_location() = pg_last_xlog_replay_location()"
@@ -30,7 +30,7 @@ module PgHero
       end
 
       def replication_slots
-        if server_version_num >= 90400
+        if server_version_num >= PgConst::VERSION_9_4
           with_feature_support(:replication_slots, []) do
             select_all <<-SQL
               SELECT
