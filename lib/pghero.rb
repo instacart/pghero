@@ -134,6 +134,16 @@ module PgHero
       end
     end
 
+    def capture_query_blockers(verbose: false)
+      each_database do |database|
+        next unless database.capture_query_blockers?
+
+        puts "(Simulating) Capturing query blockers for #{database.id}..." if verbose
+        # TODO: actually implement database.capture_query_blockers
+      end
+      true
+    end
+
     def analyze_all(**options)
       each_database do |database|
         next if database.replica?
