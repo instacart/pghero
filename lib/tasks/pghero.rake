@@ -14,6 +14,11 @@ namespace :pghero do
     PgHero.capture_connection_stats(verbose: true)
   end
 
+  desc 'capture_query_blockers'
+  task capture_query_blockers: :environment do
+    PgHero.capture_query_blockers(verbose: true)
+  end
+
   desc "analyze tables"
   task analyze: :environment do
     PgHero.analyze_all(verbose: true, min_size: ENV["MIN_SIZE_GB"].to_f.gigabytes)
