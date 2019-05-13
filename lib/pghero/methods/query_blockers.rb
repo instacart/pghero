@@ -72,7 +72,7 @@ module PgHero
         attr_accessor :id
 
         def initialize(database)
-          records = database.select_all BLOCKER_SAMPLE_SET_SQL
+          records = database.select_all(SampleSet.blocker_sample_set_sql(database.server_version_num))
           first_record = records.first # Encodes whether the set has any real blockers
 
           @captured_at = first_record[:sample_captured_at]
@@ -109,110 +109,119 @@ module PgHero
           (blocker_session[:blocking] ||= []).push(blockee_pid)
         end
 
-        # Include inline SQL comments to document nuances of the query
-        # here (they execute fine); but they break internal quoting logic
-        # (that removes newlines) so strip them out for runtime use
-        BLOCKER_SAMPLE_SET_SQL = Basic.sql_const(<<-SQL)
-          WITH blocked_pids AS (
-            -- Pids of all sessions with blockers
+        def self.build_blocker_sample_sql_const(backed_type_col_available)
+          # Include inline SQL comments to document nuances of the query
+          # here (they execute fine); but they break internal quoting logic
+          # (that removes newlines) so strip them out for runtime use
+          sql = <<-SQL
+            WITH blocked_pids AS (
+              -- Pids of all sessions with blockers
+              SELECT
+                pid blocked_pid,
+                pg_blocking_pids(pid) AS blocked_by
+              FROM
+                pg_stat_activity
+              WHERE
+                CARDINALITY(pg_blocking_pids(pid)) > 0),
+  
+            blockers_and_blockees as (
+              -- Details of all blockers and blockees; grab almost
+              -- everything since catching blockers via sampling
+              -- is hit and miss so forensic details are valuable
+              SELECT
+                psa.pid pid,
+                usename,
+                application_name,
+                client_addr,
+                client_hostname,
+                client_port,
+                backend_start,
+                xact_start,
+                query_start,
+                state_change,
+                wait_event_type,
+                wait_event,
+                state,
+                backend_xid,
+                backend_xmin,
+                query,
+                #{backed_type_col_available ? '' : 'null '}backend_type,
+                bp.blocked_by
+              FROM
+                pg_stat_activity psa
+              LEFT OUTER JOIN -- allows matching blockers as well as blockees
+                blocked_pids bp
+              ON
+                psa.pid = bp.blocked_pid -- normal join matches blockees
+              WHERE
+                datname = current_database()
+                AND (
+                  bp.blocked_pid IS NOT NULL -- blockees that already matched JOIN ON
+                  OR EXISTS -- adds blockers that are not also blockees
+                  (SELECT * FROM blocked_pids bp2 WHERE psa.pid = ANY(bp2.blocked_by))
+                )
+            ),
+  
+            sample_set_header as (
+              -- Details to record a sample set
+              -- even if there were no blockers
+              SELECT
+                current_database() sample_database,
+                NOW() sample_captured_at,
+                -- Include txid snapshot details so that txid epoch for backend_xid and backend_xmin
+                -- can be inferred; do not compare these directly to backend values without
+                -- accounting for epoch adjustment
+                txid_snapshot_xmin(txid_current_snapshot()) sample_txid_xmin,
+                txid_snapshot_xmax(txid_current_snapshot()) sample_txid_xmax,
+                ARRAY(SELECT txid_snapshot_xip(txid_current_snapshot())) sample_txid_xip
+            )
+  
+            -- Sample set always return at least one row
+            -- including the timestamp and database
+            -- clients should check for the special case
+            -- of one row with a null pid meaning there were
+            -- no blockers or blockees in the sample set
             SELECT
-              pid blocked_pid,
-              pg_blocking_pids(pid) AS blocked_by
+              header.sample_database,
+              header.sample_captured_at,
+              header.sample_txid_xmin,
+              header.sample_txid_xmax,
+              header.sample_txid_xip,
+              bab.pid,
+              bab.usename::text "user",
+              bab.application_name source,
+              bab.client_addr,
+              bab.client_hostname,
+              bab.client_port,
+              bab.backend_start,
+              bab.xact_start,
+              bab.query_start,
+              bab.state_change,
+              bab.wait_event_type,
+              bab.wait_event,
+              bab.state,
+              bab.backend_xid::text::bigint, -- careful, wraps around, 32-bit unsigned value, no epoch
+              bab.backend_xmin::text::bigint, -- careful, wraps around, 32-bit unsigned value, no epoch
+              bab.query,
+              bab.backend_type,
+              bab.blocked_by
             FROM
-              pg_stat_activity
-            WHERE
-              CARDINALITY(pg_blocking_pids(pid)) > 0),
+              sample_set_header header
+            LEFT OUTER JOIN
+              blockers_and_blockees bab
+            ON TRUE
+            ORDER BY bab.pid
+          SQL
+          Basic.sql_const(sql)
+        end
 
-          blockers_and_blockees as (
-            -- Details of all blockers and blockees; grab almost
-            -- everything since catching blockers via sampling
-            -- is hit and miss so forensic details are valuable
-            SELECT
-              psa.pid pid,
-              usename,
-              application_name,
-              client_addr,
-              client_hostname,
-              client_port,
-              backend_start,
-              xact_start,
-              query_start,
-              state_change,
-              wait_event_type,
-              wait_event,
-              state,
-              backend_xid,
-              backend_xmin,
-              query,
-              backend_type,
-              bp.blocked_by
-            FROM
-              pg_stat_activity psa
-            LEFT OUTER JOIN -- allows matching blockers as well as blockees
-              blocked_pids bp
-            ON
-              psa.pid = bp.blocked_pid -- normal join matches blockees
-            WHERE
-              datname = current_database()
-              AND (
-                bp.blocked_pid IS NOT NULL -- blockees that already matched JOIN ON
-                OR EXISTS -- adds blockers that are not also blockees
-                (SELECT * FROM blocked_pids bp2 WHERE psa.pid = ANY(bp2.blocked_by))
-              )
-          ),
-
-          sample_set_header as (
-            -- Details to record a sample set
-            -- even if there were no blockers
-            SELECT
-              current_database() sample_database,
-              NOW() sample_captured_at,
-              -- Include txid snapshot details so that txid epoch for backend_xid and backend_xmin
-              -- can be inferred; do not compare these directly to backend values without
-              -- accounting for epoch adjustment
-              txid_snapshot_xmin(txid_current_snapshot()) sample_txid_xmin,
-              txid_snapshot_xmax(txid_current_snapshot()) sample_txid_xmax,
-              ARRAY(SELECT txid_snapshot_xip(txid_current_snapshot())) sample_txid_xip
-          )
-
-          -- Sample set always return at least one row
-          -- including the timestamp and database
-          -- clients should check for the special case
-          -- of one row with a null pid meaning there were
-          -- no blockers or blockees in the sample set
-          SELECT
-            header.sample_database,
-            header.sample_captured_at,
-            header.sample_txid_xmin,
-            header.sample_txid_xmax,
-            header.sample_txid_xip,
-            bab.pid,
-            bab.usename::text "user",
-            bab.application_name source,
-            bab.client_addr,
-            bab.client_hostname,
-            bab.client_port,
-            bab.backend_start,
-            bab.xact_start,
-            bab.query_start,
-            bab.state_change,
-            bab.wait_event_type,
-            bab.wait_event,
-            bab.state,
-            bab.backend_xid::text::bigint, -- careful, wraps around, 32-bit unsigned value, no epoch
-            bab.backend_xmin::text::bigint, -- careful, wraps around, 32-bit unsigned value, no epoch
-            bab.query,
-            bab.backend_type,
-            bab.blocked_by
-          FROM
-            sample_set_header header
-          LEFT OUTER JOIN
-            blockers_and_blockees bab
-          ON TRUE
-          ORDER BY bab.pid
-        SQL
-
-        private_constant :BLOCKER_SAMPLE_SET_SQL
+        def self.blocker_sample_set_sql(pg_version)
+          if (pg_version >= PgConst::VERSION_10)
+            @BLOCKER_SAMPLE_SET_SQL ||= build_blocker_sample_sql_const(true)
+          else
+            @BLOCKER_SAMPLE_SET_SQL_PRE10 ||= build_blocker_sample_sql_const(false)
+          end
+        end
       end
 
       private
