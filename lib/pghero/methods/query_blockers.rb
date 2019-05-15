@@ -111,7 +111,7 @@ module PgHero
           (blocker_session[:blocking] ||= []).push(blockee_pid)
         end
 
-        def self.build_blocker_sample_sql_const(backed_type_col_available)
+        def self.build_blocker_sample_sql_const(backend_type_col_available)
           # Include inline SQL comments to document nuances of the query
           # here (they execute fine); but they break internal quoting logic
           # (that removes newlines) so strip them out for runtime use
@@ -147,7 +147,7 @@ module PgHero
                 backend_xid,
                 backend_xmin,
                 query,
-                #{backed_type_col_available ? '' : 'null::text '}backend_type,
+                #{backend_type_col_available ? '' : 'null::text '}backend_type,
                 bp.blocked_by
               FROM
                 pg_stat_activity psa
@@ -219,7 +219,9 @@ module PgHero
 
         def self.blocker_sample_set_sql(pg_version)
           if (pg_version >= PgConst::VERSION_10)
-            @BLOCKER_SAMPLE_SET_SQL ||= build_blocker_sample_sql_const(true)
+            # TODO: Bug in pghero.pg_stat_activity view @ Instacart where backend_type column is missing
+            #@BLOCKER_SAMPLE_SET_SQL ||= build_blocker_sample_sql_const(true)
+            @BLOCKER_SAMPLE_SET_SQL ||= build_blocker_sample_sql_const(false)
           else
             @BLOCKER_SAMPLE_SET_SQL_PRE10 ||= build_blocker_sample_sql_const(false)
           end
@@ -242,4 +244,7 @@ module PgHero
       end
     end
   end
+  # wait_event_type
+  # wait_event
+
 end
