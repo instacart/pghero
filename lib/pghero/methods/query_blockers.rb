@@ -25,7 +25,9 @@ module PgHero
       end
 
       def sample_query_blockers
-        raise NotEnabled, 'Query blockers requires Postgres 9.6+ support for pg_blocking_pids' unless supports_pg_blocking_pids?
+        unless supports_pg_blocking_pids?
+          raise NotEnabled, 'Query blockers requires Postgres 9.6+ support for pg_blocking_pids. Actual version: #{server_version_num}'
+        end
 
         SampleSet.new(self)
       end
@@ -76,7 +78,7 @@ module PgHero
           first_record = records.first # Encodes whether the set has any real blockers
 
           @captured_at = first_record[:sample_captured_at]
-          @database = first_record[:sample_database]
+          @database = database.id  # TODO: decided whether or not to keep the native database string first_record[:sample_database]
           @txid_xmin = first_record[:sample_txid_xmin]
           @txid_xmax = first_record[:sample_txid_xmax]
           @txid_xip = first_record[:sample_txid_xip]
