@@ -142,9 +142,15 @@ module PgHero
       end
     end
 
-    def capture_query_blockers(verbose: false)
+    def capture_query_blockers(verbose: false, filters: nil)
       each_database do |database|
-        next unless database.capture_query_blockers?
+        if filters && filters.none? { |f| f =~ database.id }
+          puts "Database #{database.id} did not match any filter; skipping." if verbose
+          next
+        elsif !database.capture_query_blockers?
+          puts "Database #{database.id} capture_query_blockers is disabled via configuration; skipping." if verbose
+          next
+        end
 
         puts "Capturing query blockers for #{database.id}..." if verbose
         database.capture_query_blockers

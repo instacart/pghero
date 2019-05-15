@@ -42,10 +42,6 @@ module PgHero
       config["capture_query_stats"] != false
     end
 
-    def capture_query_blockers?
-      config["capture_query_blockers"] != false
-    end
-
     def cache_hit_rate_threshold
       (config["cache_hit_rate_threshold"] || PgHero.config["cache_hit_rate_threshold"] || PgHero.cache_hit_rate_threshold).to_i
     end

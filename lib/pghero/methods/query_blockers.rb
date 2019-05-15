@@ -26,7 +26,7 @@ module PgHero
 
       def sample_query_blockers
         unless supports_pg_blocking_pids?
-          raise NotEnabled, 'Query blockers requires Postgres 9.6+ support for pg_blocking_pids. Actual version: #{server_version_num}'
+          raise NotEnabled, "Query blockers requires Postgres 9.6+ support for pg_blocking_pids. Actual version: #{server_version_num}"
         end
 
         SampleSet.new(self)

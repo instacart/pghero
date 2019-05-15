@@ -17,8 +17,11 @@ namespace :pghero do
   end
 
   desc 'capture_query_blockers'
-  task capture_query_blockers: :environment do
-    PgHero.capture_query_blockers(verbose: true)
+  task :capture_query_blockers, [:dbid_filters] => :environment do |t, task_args|
+    args = task_args.to_a
+    filters = args.empty? ? nil : args.map { |s| Regexp.new(s) }
+
+    PgHero.capture_query_blockers(verbose: true, filters: filters)
   end
 
   desc "analyze tables"
