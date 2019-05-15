@@ -147,7 +147,7 @@ module PgHero
                 backend_xid,
                 backend_xmin,
                 query,
-                #{backed_type_col_available ? '' : 'null '}backend_type,
+                #{backed_type_col_available ? '' : 'null::text '}backend_type,
                 bp.blocked_by
               FROM
                 pg_stat_activity psa
