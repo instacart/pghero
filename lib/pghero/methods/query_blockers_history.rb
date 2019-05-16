@@ -45,8 +45,8 @@ module PgHero
         @blocker_tables_usable
       end
 
-      def insert_query_blockers(sample_set, raise_errors: false)
-        return unless supports_query_blocker_history?(raise_on_unsupported: raise_errors)
+      def insert_query_blockers(sample_set)
+        return unless supports_query_blocker_history?(raise_on_unsupported: true)
 
         with_transaction do # Might already be in a transaction; that's fine
           sample_set.id = insert_query_blocker_sample(sample_set)

@@ -14,12 +14,12 @@ module PgHero
         config['capture_query_blockers'] != false
       end
 
-      def capture_query_blockers(raise_errors: false, save_empty_samples: true)
+      def capture_query_blockers(save_empty_samples: true)
         return unless capture_query_blockers?
 
         sample_set = sample_query_blockers
         if !sample_set.sessions.empty? || save_empty_samples
-          repository.insert_query_blockers(sample_set, raise_errors: raise_errors)
+          repository.insert_query_blockers(sample_set)
         end
         sample_set
       end
@@ -74,6 +74,7 @@ module PgHero
         attr_accessor :id
 
         def initialize(database)
+          self.id = nil # No real id if not stored in the database
           records = database.select_all(SampleSet.blocker_sample_set_sql(database.server_version_num))
           first_record = records.first # Encodes whether the set has any real blockers
 

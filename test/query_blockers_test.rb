@@ -10,7 +10,7 @@ class QueryBlockersTest < Minitest::Test
 
   def test_primary_database_capture_blockers_return
     run_with_blockers(rollback: rollback_enabled?) do
-      blocker_sample = primary_database.capture_query_blockers(raise_errors: true)
+      blocker_sample = primary_database.capture_query_blockers
       assert blocker_sample.sessions.size == 2
     end
   end

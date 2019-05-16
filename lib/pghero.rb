@@ -148,12 +148,27 @@ module PgHero
           puts "Database #{database.id} did not match any filter; skipping." if verbose
           next
         elsif !database.capture_query_blockers?
-          puts "Database #{database.id} capture_query_blockers is disabled via configuration; skipping." if verbose
+          if verbose
+            puts "Database #{database.id} capture_query_blockers "\
+               "is disabled via configuration; skipping."
+          end
           next
         end
 
         puts "Capturing query blockers for #{database.id}..." if verbose
-        database.capture_query_blockers
+        begin
+          blocker_sample = database.capture_query_blockers
+          if verbose
+            if blocker_sample
+              puts "Captured blocker sample #{blocker_sample.id} "\
+                   "for #{database.id} with #{blocker_sample.sessions.size} sessions."
+            else
+              puts "No blocker sample returned for #{database.id}."
+            end
+          end
+        rescue NotEnabled => e
+          puts "Query blockers not enabled for #{database.id}: #{e.message}"
+        end
       end
     end
 
