@@ -2,6 +2,7 @@ module PgHero
   class Database
     include Methods::Basic
     include Methods::Connections
+    include Methods::Constraints
     include Methods::Explain
     include Methods::Indexes
     include Methods::Kill
@@ -26,10 +27,6 @@ module PgHero
 
     def name
       @name ||= @config["name"] || id.titleize
-    end
-
-    def db_instance_identifier
-      @db_instance_identifier ||= @config["db_instance_identifier"]
     end
 
     def capture_query_stats?
@@ -68,20 +65,48 @@ module PgHero
       (config["index_bloat_bytes"] || PgHero.config["index_bloat_bytes"] || 100.megabytes).to_i
     end
 
+    def aws_access_key_id
+      config["aws_access_key_id"] || PgHero.config["aws_access_key_id"] || ENV["PGHERO_ACCESS_KEY_ID"] || ENV["AWS_ACCESS_KEY_ID"]
+    end
+
+    def aws_secret_access_key
+      config["aws_secret_access_key"] || PgHero.config["aws_secret_access_key"] || ENV["PGHERO_SECRET_ACCESS_KEY"] || ENV["AWS_SECRET_ACCESS_KEY"]
+    end
+
+    def aws_region
+      config["aws_region"] || PgHero.config["aws_region"] || ENV["PGHERO_REGION"] || ENV["AWS_REGION"] || (defined?(Aws) && Aws.config[:region]) || "us-east-1"
+    end
+
+    def aws_db_instance_identifier
+      @db_instance_identifier ||= config["aws_db_instance_identifier"] || config["db_instance_identifier"]
+    end
+
+    # TODO remove in next major version
+    alias_method :access_key_id, :aws_access_key_id
+    alias_method :secret_access_key, :aws_secret_access_key
+    alias_method :region, :aws_region
+    alias_method :db_instance_identifier, :aws_db_instance_identifier
+
     private
 
     def connection_model
       @connection_model ||= begin
         url = config["url"]
+        if !url && config["spec"]
+          raise Error, "Spec requires Rails 6+" unless PgHero.spec_supported?
+          resolved = ActiveRecord::Base.configurations.configs_for(env_name: PgHero.env, spec_name: config["spec"], include_replicas: true)
+          raise Error, "Spec not found: #{config["spec"]}" unless resolved
+          url = resolved.config
+        end
         Class.new(PgHero::Connection) do
           def self.name
             "PgHero::Connection::Database#{object_id}"
           end
           case url
           when String
-            url = "#{url}#{url.include?("?") ? "&" : "?"}connect_timeout=2" unless url.include?("connect_timeout=")
+            url = "#{url}#{url.include?("?") ? "&" : "?"}connect_timeout=5" unless url.include?("connect_timeout=")
           when Hash
-            url[:connect_timeout] ||= 2
+            url[:connect_timeout] ||= 5
           end
           establish_connection url if url
         end

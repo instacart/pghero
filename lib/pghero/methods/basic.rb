@@ -27,7 +27,7 @@ module PgHero
       end
 
       def quote_ident(value)
-        quote_table_name(value)
+        connection.quote_column_name(value)
       end
 
       private
@@ -37,9 +37,8 @@ module PgHero
         # squish for logs
         retries = 0
         begin
-          result = conn.select_all(squish(sql))
-          cast_method = ActiveRecord::VERSION::MAJOR < 5 ? :type_cast : :cast_value
-          result.map { |row| Hash[row.map { |col, val| [col.to_sym, result.column_types[col].send(cast_method, val)] }] }
+          result = conn.select_all(add_source(squish(sql)))
+          result.map { |row| Hash[row.map { |col, val| [col.to_sym, result.column_types[col].send(:cast_value, val)] }] }
         rescue ActiveRecord::StatementInvalid => e
           # fix for random internal errors
           if e.message.include?("PG::InternalError") && retries < 2
@@ -73,7 +72,7 @@ module PgHero
       end
 
       def execute(sql)
-        connection.execute(sql)
+        connection.execute(add_source(sql))
       end
 
       def connection
@@ -81,7 +80,7 @@ module PgHero
       end
 
       def stats_connection
-        ::PgHero::QueryStats.connection
+        ::PgHero::Stats.connection
       end
 
       def insert_stats(table, columns, values)
@@ -93,6 +92,10 @@ module PgHero
       # from ActiveSupport
       def squish(str)
         str.to_s.gsub(/\A[[:space:]]+/, "").gsub(/[[:space:]]+\z/, "").gsub(/[[:space:]]+/, " ")
+      end
+
+      def add_source(sql)
+        "#{sql} /*pghero*/"
       end
 
       def quote(value)
@@ -121,22 +124,7 @@ module PgHero
       end
 
       def table_exists?(table)
-        ["PostgreSQL", "PostGIS"].include?(stats_connection.adapter_name) &&
-        select_one_stats(<<-SQL
-          SELECT EXISTS (
-            SELECT
-              1
-            FROM
-              pg_catalog.pg_class c
-            INNER JOIN
-              pg_catalog.pg_namespace n ON n.oid = c.relnamespace
-            WHERE
-              n.nspname = 'public'
-              AND c.relname = #{quote(table)}
-              AND c.relkind = 'r'
-          )
-        SQL
-        )
+        stats_connection.table_exists?(table)
       end
     end
   end

@@ -4,10 +4,9 @@ Distributions
 
 - [Ubuntu 18.04 (Bionic)](#ubuntu-1804-bionic)
 - [Ubuntu 16.04 (Xenial)](#ubuntu-1604-xenial)
-- [Ubuntu 14.04 (Trusty)](#ubuntu-1404-trusty)
+- [Debian 10 (Buster)](#debian-10-buster)
 - [Debian 9 (Stretch)](#debian-9-stretch)
 - [Debian 8 (Jesse)](#debian-8-jesse)
-- [Debian 7 (Wheezy)](#debian-7-wheezy)
 - [CentOS / RHEL 7](#centos--rhel-7)
 - [SUSE Linux Enterprise Server 12](#suse-linux-enterprise-server-12)
 
@@ -35,12 +34,13 @@ sudo apt-get update
 sudo apt-get -y install pghero
 ```
 
-### Ubuntu 14.04 (Trusty)
+### Debian 10 (Buster)
 
 ```sh
+sudo apt-get -y install apt-transport-https
 wget -qO- https://dl.packager.io/srv/pghero/pghero/key | sudo apt-key add -
 sudo wget -O /etc/apt/sources.list.d/pghero.list \
-  https://dl.packager.io/srv/pghero/pghero/master/installer/ubuntu/14.04.repo
+  https://dl.packager.io/srv/pghero/pghero/master/installer/debian/10.repo
 sudo apt-get update
 sudo apt-get -y install pghero
 ```
@@ -63,17 +63,6 @@ sudo apt-get -y install apt-transport-https
 wget -qO- https://dl.packager.io/srv/pghero/pghero/key | sudo apt-key add -
 sudo wget -O /etc/apt/sources.list.d/pghero.list \
   https://dl.packager.io/srv/pghero/pghero/master/installer/debian/8.repo
-sudo apt-get update
-sudo apt-get -y install pghero
-```
-
-### Debian 7 (Wheezy)
-
-```sh
-sudo apt-get -y install apt-transport-https
-wget -qO- https://dl.packager.io/srv/pghero/pghero/key | sudo apt-key add -
-sudo wget -O /etc/apt/sources.list.d/pghero.list \
-  https://dl.packager.io/srv/pghero/pghero/master/installer/debian/7.repo
 sudo apt-get update
 sudo apt-get -y install pghero
 ```
@@ -164,7 +153,7 @@ To track query stats over time, create a table to store them.
 
 ```sql
 CREATE TABLE "pghero_query_stats" (
-  "id" serial primary key,
+  "id" bigserial primary key,
   "database" text,
   "user" text,
   "query" text,
@@ -190,13 +179,19 @@ sudo pghero run rake pghero:capture_query_stats
 
 After this, a time range slider will appear on the Queries tab.
 
+The query stats table can grow large over time. Remove old stats with:
+
+```sh
+sudo pghero run rake pghero:clean_query_stats
+```
+
 ## Historical Space Stats
 
 To track space stats over time, create a table to store them.
 
 ```sql
 CREATE TABLE "pghero_space_stats" (
-  "id" serial primary key,
+  "id" bigserial primary key,
   "database" text,
   "schema" text,
   "relation" text,
@@ -242,6 +237,7 @@ CPU usage is available for Amazon RDS.  Add these variables to your environment:
 ```sh
 sudo pghero config:set PGHERO_ACCESS_KEY_ID=accesskey123
 sudo pghero config:set PGHERO_SECRET_ACCESS_KEY=secret123
+sudo pghero config:set PGHERO_REGION=us-east-1
 sudo pghero config:set PGHERO_DB_INSTANCE_IDENTIFIER=epona
 ```
 
@@ -256,6 +252,8 @@ databases:
   replica:
     url: postgres://...
 ```
+
+More information about [connections parameters](https://www.postgresql.org/docs/current/libpq-connect.html#LIBPQ-PARAMKEYWORDS)
 
 And run:
 

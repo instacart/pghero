@@ -1,9 +1,11 @@
 # dependencies
 require "active_support"
+require "forwardable"
 
 # methods
 require "pghero/methods/basic"
 require "pghero/methods/connections"
+require "pghero/methods/constraints"
 require "pghero/methods/explain"
 require "pghero/methods/indexes"
 require "pghero/methods/kill"
@@ -25,7 +27,9 @@ require "pghero/version"
 
 module PgHero
   autoload :Connection, "pghero/connection"
+  autoload :Stats, "pghero/stats"
   autoload :QueryStats, "pghero/query_stats"
+  autoload :SpaceStats, "pghero/space_stats"
 
   class Error < StandardError; end
   class NotEnabled < Error; end
@@ -42,15 +46,15 @@ module PgHero
   self.cache_hit_rate_threshold = 99
   self.env = ENV["RAILS_ENV"] || ENV["RACK_ENV"] || "development"
   self.show_migrations = true
-  self.config_path = "config/pghero.yml"
+  self.config_path = ENV["PGHERO_CONFIG_PATH"] || "config/pghero.yml"
 
   class << self
     extend Forwardable
     def_delegators :primary_database, :access_key_id, :analyze, :analyze_tables, :autoindex, :autovacuum_danger,
-      :best_index, :blocked_queries, :connection_sources, :connection_states, :connection_stats,
+      :best_index, :blocked_queries, :connections, :connection_sources, :connection_states, :connection_stats,
       :cpu_usage, :create_user, :database_size, :db_instance_identifier, :disable_query_stats, :drop_user,
       :duplicate_indexes, :enable_query_stats, :explain, :historical_query_stats_enabled?, :index_caching,
-      :index_hit_rate, :index_usage, :indexes, :invalid_indexes, :kill, :kill_all, :kill_long_running_queries,
+      :index_hit_rate, :index_usage, :indexes, :invalid_constraints, :invalid_indexes, :kill, :kill_all, :kill_long_running_queries,
       :last_stats_reset_time, :long_running_queries, :maintenance_info, :missing_indexes, :query_stats,
       :query_stats_available?, :query_stats_enabled?, :query_stats_extension_enabled?, :query_stats_readable?,
       :rds_stats, :read_iops_stats, :region, :relation_sizes, :replica?, :replication_lag, :replication_lag_stats,
@@ -65,6 +69,22 @@ module PgHero
 
     def time_zone
       @time_zone || Time.zone
+    end
+
+    # use method instead of attr_accessor to ensure
+    # this works if variable set after PgHero is loaded
+    def username
+      @username ||= config["username"] || ENV["PGHERO_USERNAME"]
+    end
+
+    # use method instead of attr_accessor to ensure
+    # this works if variable set after PgHero is loaded
+    def password
+      @password ||= config["password"] || ENV["PGHERO_PASSWORD"]
+    end
+
+    def stats_database_url
+      @stats_database_url ||= config["stats_database_url"] || ENV["PGHERO_STATS_DATABASE_URL"]
     end
 
     def config
@@ -86,13 +106,23 @@ module PgHero
         elsif config_file_exists
           raise "Invalid config file"
         else
-          {
-            "databases" => {
-              "primary" => {
-                "url" => ENV["PGHERO_DATABASE_URL"] || ActiveRecord::Base.connection_config,
-                "db_instance_identifier" => ENV["PGHERO_DB_INSTANCE_IDENTIFIER"]
-              }
+          databases = {}
+
+          if !ENV["PGHERO_DATABASE_URL"] && spec_supported?
+            ActiveRecord::Base.configurations.configs_for(env_name: env, include_replicas: true).each do |db|
+              databases[db.spec_name] = {"spec" => db.spec_name}
+            end
+          end
+
+          if databases.empty?
+            databases["primary"] = {
+              "url" => ENV["PGHERO_DATABASE_URL"] || ActiveRecord::Base.connection_config,
+              "db_instance_identifier" => ENV["PGHERO_DB_INSTANCE_IDENTIFIER"]
             }
+          end
+
+          {
+            "databases" => databases
           }
         end
       end
@@ -153,13 +183,33 @@ module PgHero
 
     def autoindex_all(create: false, verbose: true)
       each_database do |database|
-        puts "Autoindexing #{database}..." if verbose
+        puts "Autoindexing #{database.id}..." if verbose
         database.autoindex(create: create)
       end
     end
 
     def pretty_size(value)
       ActiveSupport::NumberHelper.number_to_human_size(value, precision: 3)
+    end
+
+    # delete previous stats
+    # go database by database to use an index
+    # stats for old databases are not cleaned up since we can't use an index
+    def clean_query_stats
+      each_database do |database|
+        PgHero::QueryStats.where(database: database.id).where("captured_at < ?", 14.days.ago).delete_all
+      end
+    end
+
+    def clean_space_stats
+      each_database do |database|
+        PgHero::SpaceStats.where(database: database.id).where("captured_at < ?", 90.days.ago).delete_all
+      end
+    end
+
+    # private
+    def spec_supported?
+      ActiveRecord::VERSION::MAJOR >= 6
     end
 
     private

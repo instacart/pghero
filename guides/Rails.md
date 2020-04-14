@@ -53,7 +53,7 @@ To track query stats over time, run:
 
 ```sh
 rails generate pghero:query_stats
-rake db:migrate
+rails db:migrate
 ```
 
 And schedule the task below to run every 5 minutes.
@@ -70,6 +70,18 @@ PgHero.capture_query_stats
 
 After this, a time range slider will appear on the Queries tab.
 
+The query stats table can grow large over time. Remove old stats with:
+
+```sh
+rake pghero:clean_query_stats
+```
+
+or:
+
+```rb
+PgHero.clean_query_stats
+```
+
 By default, query stats are stored in your app’s database. Change this with:
 
 ```ruby
@@ -82,7 +94,7 @@ To track space stats over time, run:
 
 ```sh
 rails generate pghero:space_stats
-rake db:migrate
+rails db:migrate
 ```
 
 And schedule the task below to run once a day.
@@ -133,6 +145,7 @@ And add these variables to your environment:
 ```sh
 PGHERO_ACCESS_KEY_ID=accesskey123
 PGHERO_SECRET_ACCESS_KEY=secret123
+PGHERO_REGION=us-east-1
 PGHERO_DB_INSTANCE_IDENTIFIER=epona
 ```
 
@@ -151,53 +164,19 @@ This requires the following IAM policy:
 }
 ```
 
-## Multiple Databases
+## Customization & Multiple Databases
 
-Create `config/pghero.yml` with:
+To customize PgHero, create `config/pghero.yml` with:
 
-```yml
-databases:
-  primary:
-    url: <%= ENV["PGHERO_DATABASE_URL"] %>
-  replica:
-    url: <%= ENV["REPLICA_DATABASE_URL"] %>
+```sh
+rails generate pghero:config
 ```
+
+This allows you to specify multiple databases and change thresholds. Thresholds can be set globally or per-database.
 
 ## Permissions
 
 We recommend [setting up a dedicated user](Permissions.md) for PgHero.
-
-## Customize
-
-Minimum time for long running queries
-
-```ruby
-PgHero.long_running_query_sec = 60 # default
-```
-
-Minimum average time for slow queries
-
-```ruby
-PgHero.slow_query_ms = 20 # default
-```
-
-Minimum calls for slow queries
-
-```ruby
-PgHero.slow_query_calls = 100 # default
-```
-
-Minimum connections for high connections warning
-
-```ruby
-PgHero.total_connections_threshold = 500 # default
-```
-
-Statement timeout for explain
-
-```ruby
-PgHero.explain_timeout_sec = 10 # default
-```
 
 ## Methods
 
@@ -216,7 +195,6 @@ PgHero.relation_sizes
 PgHero.index_hit_rate
 PgHero.table_hit_rate
 PgHero.total_connections
-PgHero.locks
 ```
 
 Kill queries

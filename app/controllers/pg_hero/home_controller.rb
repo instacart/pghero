@@ -4,20 +4,18 @@ module PgHero
 
     protect_from_forgery
 
-    http_basic_authenticate_with name: ENV["PGHERO_USERNAME"], password: ENV["PGHERO_PASSWORD"] if ENV["PGHERO_PASSWORD"]
+    http_basic_authenticate_with name: PgHero.username, password: PgHero.password if PgHero.password
 
-    if respond_to?(:before_action)
-      before_action :check_api
-      before_action :set_database
-      before_action :set_query_stats_enabled
-      before_action :set_show_details, only: [:index, :queries, :show_query]
-      before_action :ensure_query_stats, only: [:queries]
-    else
-      # no need to check API in earlier versions
-      before_filter :set_database
-      before_filter :set_query_stats_enabled
-      before_filter :set_show_details, only: [:index, :queries, :show_query]
-      before_filter :ensure_query_stats, only: [:queries]
+    before_action :check_api
+    before_action :set_database
+    before_action :set_query_stats_enabled
+    before_action :set_show_details, only: [:index, :queries, :show_query]
+    before_action :ensure_query_stats, only: [:queries]
+
+    if PgHero.config["override_csp"]
+      after_action do
+        response.headers["Content-Security-Policy"] = "default-src 'self' 'unsafe-inline'"
+      end
     end
 
     def index
@@ -50,6 +48,7 @@ module PgHero
 
       @indexes = @database.indexes
       @invalid_indexes = @database.invalid_indexes(indexes: @indexes)
+      @invalid_constraints = @database.invalid_constraints
       @duplicate_indexes = @database.duplicate_indexes(indexes: @indexes)
 
       if @query_stats_enabled
@@ -102,7 +101,7 @@ module PgHero
       @relation = params[:relation]
       @title = @relation
       relation_space_stats = @database.relation_space_stats(@relation, schema: @schema)
-      @chart_data = [{name: "Value", data: relation_space_stats.map { |r| [r[:captured_at], (r[:size_bytes].to_f / 1.megabyte).round(1)] }, library: chart_library_options}]
+      @chart_data = [{name: "Value", data: relation_space_stats.map { |r| [r[:captured_at].change(sec: 0), r[:size_bytes].to_i] }, library: chart_library_options}]
     end
 
     def index_bloat
@@ -178,9 +177,9 @@ module PgHero
         if @show_details
           query_hash_stats = @database.query_hash_stats(@query_hash, user: @user)
 
-          @chart_data = [{name: "Value", data: query_hash_stats.map { |r| [r[:captured_at], (r[:total_minutes] * 60 * 1000).round] }, library: chart_library_options}]
-          @chart2_data = [{name: "Value", data: query_hash_stats.map { |r| [r[:captured_at], r[:average_time].round(1)] }, library: chart_library_options}]
-          @chart3_data = [{name: "Value", data: query_hash_stats.map { |r| [r[:captured_at], r[:calls]] }, library: chart_library_options}]
+          @chart_data = [{name: "Value", data: query_hash_stats.map { |r| [r[:captured_at].change(sec: 0), (r[:total_minutes] * 60 * 1000).round] }, library: chart_library_options}]
+          @chart2_data = [{name: "Value", data: query_hash_stats.map { |r| [r[:captured_at].change(sec: 0), r[:average_time].round(1)] }, library: chart_library_options}]
+          @chart3_data = [{name: "Value", data: query_hash_stats.map { |r| [r[:captured_at].change(sec: 0), r[:calls]] }, library: chart_library_options}]
 
           @origins = Hash[query_hash_stats.group_by { |r| r[:origin].to_s }.map { |k, v| [k, v.size] }]
           @total_count = query_hash_stats.size
@@ -237,7 +236,7 @@ module PgHero
 
     def free_space_stats
       render json: [
-        {name: "Free Space", data: @database.free_space_stats(duration: 14.days, period: 1.hour).map { |k, v| [k, (v / 1.gigabyte).round] }, library: chart_library_options},
+        {name: "Free Space", data: @database.free_space_stats(duration: 14.days, period: 1.hour), library: chart_library_options},
       ]
     end
 
@@ -298,7 +297,7 @@ module PgHero
 
     def kill
       if @database.kill(params[:pid])
-        redirect_to root_path, notice: "Query killed"
+        redirect_backward notice: "Query killed"
       else
         redirect_backward notice: "Query no longer running"
       end
@@ -381,7 +380,7 @@ module PgHero
     end
 
     def chart_library_options
-      {pointRadius: 0, pointHitRadius: 5, borderWidth: 4}
+      {pointRadius: 0, pointHoverRadius: 0, pointHitRadius: 5, borderWidth: 4}
     end
 
     def set_show_details
@@ -389,12 +388,15 @@ module PgHero
       @show_details = @historical_query_stats_enabled && @database.supports_query_hash?
     end
 
-    def group_connections(connection_sources, key)
-      top_connections = Hash.new(0)
-      connection_sources.each do |source|
-        top_connections[source[key]] += source[:total_connections]
-      end
-      top_connections.sort_by { |k, v| [-v, k] }
+    def group_connections(connections, keys)
+      connections
+        .group_by { |conn| conn.slice(*keys) }
+        .map { |k, v| k.merge(total_connections: v.count) }
+        .sort_by { |v| [-v[:total_connections]] + keys.map { |k| v[k].to_s } }
+    end
+
+    def group_connections_by_key(connections, key)
+      group_connections(connections, [key]).map { |v| [v[key], v[:total_connections]] }.to_h
     end
 
     def check_api
@@ -402,11 +404,7 @@ module PgHero
     end
 
     def render_text(message)
-      if Rails::VERSION::MAJOR >= 5
-        render plain: message
-      else
-        render text: message
-      end
+      render plain: message
     end
 
     def ensure_query_stats
