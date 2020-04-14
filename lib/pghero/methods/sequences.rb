@@ -23,7 +23,8 @@ module PgHero
           WHERE
             NOT a.attisdropped
             AND a.attnum > 0
-            AND d.adsrc LIKE 'nextval%'
+            AND pg_get_expr(d.adbin, d.adrelid) LIKE 'nextval%'
+            AND n.nspname NOT LIKE 'pg\\_temp\\_%'
         SQL
 
         # parse out sequence
