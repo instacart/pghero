@@ -27,7 +27,7 @@ To track query stats over time, create a table to store them.
 
 ```sql
 CREATE TABLE "pghero_query_stats" (
-  "id" serial primary key,
+  "id" bigserial primary key,
   "database" text,
   "user" text,
   "query" text,
@@ -66,6 +66,7 @@ CPU usage is available for Amazon RDS.  Add these variables to your environment:
 ```sh
 heroku config:set PGHERO_ACCESS_KEY_ID=accesskey123
 heroku config:set PGHERO_SECRET_ACCESS_KEY=secret123
+heroku config:set PGHERO_REGION=us-east-1
 heroku config:set PGHERO_DB_INSTANCE_IDENTIFIER=epona
 ```
 
