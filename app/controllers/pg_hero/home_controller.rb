@@ -2,7 +2,7 @@ module PgHero
   class HomeController < ActionController::Base
     layout "pg_hero/application"
 
-    protect_from_forgery
+    protect_from_forgery with: :exception # https://github.com/ankane/pghero/commit/14b67b32fed19a30aaf9826ee72f2a29cda604e9
 
     http_basic_authenticate_with name: ENV["PGHERO_USERNAME"], password: ENV["PGHERO_PASSWORD"] if ENV["PGHERO_PASSWORD"]
 
