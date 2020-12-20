@@ -8,7 +8,7 @@ module PgHero
             state,
             application_name AS source,
             age(NOW(), COALESCE(query_start, xact_start)) AS duration,
-            #{server_version_num >= 90600 ? "(wait_event IS NOT NULL) AS waiting" : "waiting"},
+            #{server_version_num >= PgConst::VERSION_9_6 ? "(wait_event IS NOT NULL) AS waiting" : "waiting"},
             query,
             COALESCE(query_start, xact_start) AS started_at,
             EXTRACT(EPOCH FROM NOW() - COALESCE(query_start, xact_start)) * 1000.0 AS duration_ms,

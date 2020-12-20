@@ -66,3 +66,16 @@ users =
   end
 User.import users, validate: false
 ActiveRecord::Base.connection.execute("ANALYZE users")
+
+def primary_database
+  PgHero.databases[:primary]
+end
+
+def stats_repository
+  primary_database.send :repository
+end
+
+def rollback_enabled?
+  false # TODO: JRD - turn this back off
+end
+

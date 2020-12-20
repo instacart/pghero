@@ -72,15 +72,15 @@ module PgHero
       end
 
       def query_stats_table_exists?
-        table_exists?("pghero_query_stats")
+        repository.table_exists?("pghero_query_stats")
       end
 
       def missing_query_stats_columns
-        %w(query_hash user) - PgHero::QueryStats.column_names
+        %w(query_hash user) - PgHero::Repository::QueryStats.column_names
       end
 
       def supports_query_hash?
-        server_version_num >= 90400
+        server_version_num >= PgConst::VERSION_9_4
       end
 
       # resetting query stats will reset across the entire Postgres instance
@@ -123,7 +123,7 @@ module PgHero
                 end
 
               columns = %w[database query total_time calls captured_at query_hash user]
-              insert_stats("pghero_query_stats", columns, values)
+              repository.insert("pghero_query_stats", columns, values)
             end
           end
         end
@@ -137,7 +137,7 @@ module PgHero
       def query_hash_stats(query_hash, user: nil)
         if historical_query_stats_enabled? && supports_query_hash?
           start_at = 24.hours.ago
-          select_all_stats <<-SQL
+          repository.select_all <<-SQL
             SELECT
               captured_at,
               total_time / 1000 / 60 AS total_minutes,
@@ -208,7 +208,7 @@ module PgHero
       def historical_query_stats(sort: nil, start_at: nil, end_at: nil, query_hash: nil)
         if historical_query_stats_enabled?
           sort ||= "total_minutes"
-          select_all_stats <<-SQL
+          repository.select_all <<-SQL
             WITH query_stats AS (
               SELECT
                 #{supports_query_hash? ? "query_hash" : "md5(query)"} AS query_hash,

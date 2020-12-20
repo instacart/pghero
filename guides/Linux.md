@@ -225,7 +225,7 @@ CREATE TABLE "pghero_connection_stats" (
   "username" text, 
   "captured_at" timestamp
 );
-CREATE  INDEX  "pghero_connection_stats" ("database", "captured_at");
+CREATE INDEX ON "pghero_connection_stats" ("database", "captured_at");
 ```
 
 Schedule the task below to run once a day.
@@ -234,6 +234,14 @@ Schedule the task below to run once a day.
 sudo pghero run rake pghero:capture_connection_stats
 ```
 
+## Historical Query Blockers
+
+To track query blockers over time, create a table to store them.
+
+TODO 
+```sql
+CREATE TABLE ...
+```
 
 ## System Stats
 

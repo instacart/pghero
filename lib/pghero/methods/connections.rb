@@ -1,6 +1,12 @@
+# frozen_string_literal: true
+
 module PgHero
   module Methods
     module Connections
+
+      CONNECTION_STATS_TABLE = 'pghero_connection_stats'
+      private_constant :CONNECTION_STATS_TABLE
+
       def total_connections
         select_one("SELECT COUNT(*) FROM pg_stat_activity")
       end
@@ -54,9 +60,9 @@ module PgHero
       end
 
       def recently_connected_users
-        users = select_all_stats <<-SQL
+        users = repository.select_all <<-SQL
           SELECT distinct username
-          FROM "pghero_connection_stats" 
+          FROM "pghero_connection_stats"
           WHERE database = #{quote(id)}
           AND captured_at > date_trunc('day', NOW() - interval '2 hours')
           ORDER by username
@@ -64,7 +70,7 @@ module PgHero
       end
 
       def connection_history_for_user(username)
-        history = select_all_stats <<-SQL
+        history = repository.select_all <<-SQL
           SELECT date_trunc('minute', captured_at) as the_date, max(total_connections) as tot 
           FROM "pghero_connection_stats" 
           WHERE database= #{quote(id)}
@@ -82,11 +88,11 @@ module PgHero
         connection_sources_by_user.each do |rs|
           values << [id, rs[:total_connections].to_i,rs[:user], now]
         end
-        insert_stats("pghero_connection_stats", columns, values) if values.any?
+        repository.insert(CONNECTION_STATS_TABLE, columns, values) if values.any?
       end
-  
+
       def connection_stats_enabled?
-        table_exists?("pghero_connection_stats")
+        repository.table_exists?(CONNECTION_STATS_TABLE)
       end
 
     end

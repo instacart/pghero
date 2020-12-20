@@ -52,7 +52,7 @@ module PgHero
           sizes = Hash[ relation_sizes.map { |r| [[r[:schema], r[:relation]], r[:size_bytes]] } ]
           start_at = days.days.ago
 
-          stats = select_all_stats <<-SQL
+          stats = repository.select_all <<-SQL
             WITH t AS (
               SELECT
                 schema,
@@ -95,7 +95,7 @@ module PgHero
           sizes = Hash[ relation_sizes.map { |r| [[r[:schema], r[:relation]], r[:size_bytes]] } ]
           start_at = 30.days.ago
 
-          stats = select_all_stats <<-SQL
+          stats = repository.select_all <<-SQL
             SELECT
               captured_at,
               size AS size_bytes
@@ -126,11 +126,11 @@ module PgHero
         relation_sizes.each do |rs|
           values << [id, rs[:schema], rs[:relation], rs[:size_bytes].to_i, now]
         end
-        insert_stats("pghero_space_stats", columns, values) if values.any?
+        repository.insert("pghero_space_stats", columns, values) if values.any?
       end
 
       def space_stats_enabled?
-        table_exists?("pghero_space_stats")
+        repository.table_exists?("pghero_space_stats")
       end
     end
   end
